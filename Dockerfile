@@ -13,4 +13,4 @@ WORKDIR /root/
 
 COPY --from=builder /app/rating-scrapper .
 
-ENTRYPOINT ["./rating-scrapper"]
+# ENTRYPOINT ["./rating-scrapper"]
