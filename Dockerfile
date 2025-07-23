@@ -14,4 +14,4 @@ WORKDIR /root/
 
 COPY --from=builder /app/rating-scrapper .
 
-CMD ["./rating-scrapper"]
+CMD ["tail", "-f", "/dev/null"]
