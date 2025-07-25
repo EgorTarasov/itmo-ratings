@@ -189,7 +189,7 @@ func (s *Service) formatMessage(studentID string, entries []rating.Entry, progra
 
 	msg := `
 ⌛ Последнее обновление: %s
-📊 Обновление места в списке поступления на программу: %d, %s
+📊 Обновление места в списке поступления на программу: [%s](https://abit.itmo.ru/rating/master/budget/%d)
 
 👤 Твой номер заявления: %s
 📍 Твое место в нашем рейтинге: %d из %d
@@ -220,8 +220,8 @@ func (s *Service) formatMessage(studentID string, entries []rating.Entry, progra
 
 	return fmt.Sprintf(msg,
 		program.lastUpdate.String(),
-		program.programID,
 		program.name,
+		program.programID,
 		studentEntry.SSPVOID,
 		studentIndex+1, // +1 because index is 0-based
 		totalStudents,

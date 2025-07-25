@@ -33,6 +33,7 @@ func (b *Bot) SendMessage(ctx context.Context, userID int64, content string) err
 		return fmt.Errorf("invalid message content must be not empty string")
 	}
 	msg := tgbotapi.NewMessage(userID, content)
+	msg.ParseMode = tgbotapi.ModeMarkdown
 	_, err := b.BotAPI.Send(msg)
 	if err != nil {
 		return fmt.Errorf("failed to send message to user: %w", err)
