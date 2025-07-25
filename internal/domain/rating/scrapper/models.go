@@ -1,9 +1,32 @@
-package rating
+package scrapper
 
-// Add this to your rating package
-type Entry struct {
-	Contest                   string  `json:"contest"`
-	ExamType                  string  `json:"exam_type"`
+// RatingsNextJSData represents the structure of __NEXT_DATA__ content
+type RatingsNextJSData struct {
+	Props struct {
+		PageProps struct {
+			ProgramList struct {
+				ByTargetQuota      []RatingEntry `json:"by_target_quota"`
+				GeneralCompetition []RatingEntry `json:"general_competition"`
+				Direction          struct {
+					DirectionTitle     string `json:"direction_title"`
+					BudgetMin          int    `json:"budget_min"`
+					Contract           int    `json:"contract"`
+					TargetReception    int    `json:"target_reception"`
+					IsuID              *int   `json:"isu_id"`
+					Invalid            int    `json:"invalid"`
+					SpecialQuota       int    `json:"special_quota"`
+					CompetitiveGroupID int    `json:"competitive_group_id"`
+				} `json:"direction"`
+				UpdateTime string `json:"update_time"`
+			} `json:"programList"`
+		} `json:"pageProps"`
+	} `json:"props"`
+}
+
+// RatingEntry represents a single rating entry
+type RatingEntry struct {
+	Contest                   *string `json:"contest"`
+	ExamType                  *string `json:"exam_type"`
 	DiplomaAverage            float64 `json:"diploma_average"`
 	Position                  int     `json:"position"`
 	Priority                  int     `json:"priority"`
@@ -14,9 +37,9 @@ type Entry struct {
 	SNILS                     string  `json:"snils"`
 	CaseNumber                string  `json:"case_number"`
 	Link                      string  `json:"link"`
-	Status                    string  `json:"status"`
+	Status                    *string `json:"status"`
 	IsSpecialBCategory        *bool   `json:"is_special_b_category"`
-	SSPVOID                   string  `json:"sspvo_id"`
+	SSPVO                     string  `json:"sspvo_id"`
 	MainTopPriority           bool    `json:"main_top_priority"`
 	HighestPassagewayPriority bool    `json:"highest_passageway_priority"`
 	IsPublishedInWorkInRussia *bool   `json:"is_published_in_work_in_russia"`
@@ -27,6 +50,16 @@ type Entry struct {
 	HasApprovedContract   *bool    `json:"has_approved_contract"`
 }
 
+// ProgramsAPIResponse represents the response from the programs API
+type ProgramsAPIResponse struct {
+	OK      bool   `json:"ok"`
+	Message string `json:"message"`
+	Result  struct {
+		Items []ProgramDirection `json:"items"`
+	} `json:"result"`
+}
+
+// ProgramDirection represents a single program direction from the API
 type ProgramDirection struct {
 	DirectionTitle     string `json:"direction_title"`
 	BudgetMin          int    `json:"budget_min"`

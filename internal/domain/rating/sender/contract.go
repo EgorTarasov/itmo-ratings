@@ -11,5 +11,6 @@ type (
 	}
 	parser interface {
 		GetEntries(ctx context.Context, programID int64) ([]rating.Entry, error)
+		GetAllPrograms(ctx context.Context) ([]rating.ProgramDirection, error)
 	}
 )

@@ -10,64 +10,18 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/samber/lo"
 )
 
 const (
-	pageUrl    = "https://abit.itmo.ru/rating/master/budget/%d"
-	timeout    = time.Minute * 5
-	maxRetries = 3
-	retryDelay = time.Second * 2
+	programsPageUrl = "https://abit.itmo.ru/ratings/master"
+	programPageUrl  = "https://abit.itmo.ru/rating/master/budget/%d"
+	programsAPIUrl  = "https://abitlk.itmo.ru/api/v1/rating/directions?degree=master"
+	timeout         = time.Minute * 5
+	maxRetries      = 3
+	retryDelay      = time.Second * 2
 )
-
-// NextJSData represents the structure of __NEXT_DATA__ content
-type NextJSData struct {
-	Props struct {
-		PageProps struct {
-			ProgramList struct {
-				ByTargetQuota      []RatingEntry `json:"by_target_quota"`
-				GeneralCompetition []RatingEntry `json:"general_competition"`
-				Direction          struct {
-					DirectionTitle     string `json:"direction_title"`
-					BudgetMin          int    `json:"budget_min"`
-					Contract           int    `json:"contract"`
-					TargetReception    int    `json:"target_reception"`
-					IsuID              *int   `json:"isu_id"`
-					Invalid            int    `json:"invalid"`
-					SpecialQuota       int    `json:"special_quota"`
-					CompetitiveGroupID int    `json:"competitive_group_id"`
-				} `json:"direction"`
-				UpdateTime string `json:"update_time"`
-			} `json:"programList"`
-		} `json:"pageProps"`
-	} `json:"props"`
-}
-
-// RatingEntry represents a single rating entry
-type RatingEntry struct {
-	Contest                   *string  `json:"contest"`
-	ExamType                  *string  `json:"exam_type"`
-	DiplomaAverage            float64  `json:"diploma_average"`
-	Position                  int      `json:"position"`
-	Priority                  int      `json:"priority"`
-	IAScores                  float64  `json:"ia_scores"`
-	ExamScores                float64  `json:"exam_scores"`
-	TotalScores               float64  `json:"total_scores"`
-	IsSendAgreement           bool     `json:"is_send_agreement"`
-	SNILS                     string   `json:"snils"`
-	CaseNumber                string   `json:"case_number"`
-	Link                      string   `json:"link"`
-	Status                    *string  `json:"status"`
-	IsSpecialBCategory        *bool    `json:"is_special_b_category"`
-	SSPVO                     string   `json:"sspvo_id"`
-	MainTopPriority           bool     `json:"main_top_priority"`
-	HighestPassagewayPriority bool     `json:"highest_passageway_priority"`
-	IsPublishedInWorkInRussia *bool    `json:"is_published_in_work_in_russia"`
-	OfferNumber               *string  `json:"offer_number"`
-	TargetOrganizationNumber  *string  `json:"target_organization_number"`
-	IsDetailedTargetQuota     *bool    `json:"is_detailed_target_quota"`
-	TargetAchievements        *float64 `json:"target_achievements"`
-	HasApprovedContract       *bool    `json:"has_approved_contract"`
-}
 
 type Service struct {
 	client client
@@ -81,7 +35,7 @@ func (s *Service) GetEntries(ctx context.Context, programID int64) ([]rating.Ent
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	htmlContent, err := s.getPageWithRetries(ctx, fmt.Sprintf(pageUrl, programID))
+	htmlContent, err := s.getPageWithRetries(ctx, fmt.Sprintf(programPageUrl, programID))
 	if err != nil {
 		return nil, fmt.Errorf("failed to download html page: %d err: %v", programID, err)
 	}
@@ -94,6 +48,70 @@ func (s *Service) GetEntries(ctx context.Context, programID int64) ([]rating.Ent
 	entries := s.convertToRatingEntries(nextData)
 
 	return entries, nil
+}
+
+func (s *Service) GetAllPrograms(ctx context.Context) ([]rating.ProgramDirection, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, programsAPIUrl, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Set required headers
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Accept-Language", "ru")
+	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("DNT", "1")
+	req.Header.Set("Origin", "https://abit.itmo.ru")
+	req.Header.Set("Pragma", "no-cache")
+	req.Header.Set("Priority", "u=1, i")
+	req.Header.Set("Referer", "https://abit.itmo.ru/")
+	req.Header.Set("Sec-CH-UA", `"Not)A;Brand";v="8", "Chromium";v="138"`)
+	req.Header.Set("Sec-CH-UA-Mobile", "?0")
+	req.Header.Set("Sec-CH-UA-Platform", `"macOS"`)
+	req.Header.Set("Sec-Fetch-Dest", "empty")
+	req.Header.Set("Sec-Fetch-Mode", "cors")
+	req.Header.Set("Sec-Fetch-Site", "same-site")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36")
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("HTTP error: %d %s", resp.StatusCode, resp.Status)
+	}
+
+	content, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	var apiResponse ProgramsAPIResponse
+	if err := json.Unmarshal(content, &apiResponse); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal JSON response: %w", err)
+	}
+
+	if !apiResponse.OK {
+		return nil, fmt.Errorf("API returned error: %s", apiResponse.Message)
+	}
+
+	return lo.Map(apiResponse.Result.Items, func(v ProgramDirection, _ int) rating.ProgramDirection {
+		return rating.ProgramDirection{
+			DirectionTitle:     v.DirectionTitle,
+			BudgetMin:          v.BudgetMin,
+			Contract:           v.Contract,
+			TargetReception:    v.TargetReception,
+			IsuID:              v.IsuID,
+			Invalid:            v.Invalid,
+			SpecialQuota:       v.SpecialQuota,
+			CompetitiveGroupID: v.CompetitiveGroupID,
+		}
+	}), nil
 }
 
 func (s *Service) getPageWithRetries(ctx context.Context, url string) (string, error) {
@@ -155,7 +173,7 @@ func (s *Service) getPage(ctx context.Context, url string) (string, error) {
 	return string(content), nil
 }
 
-func (s *Service) extractNextData(htmlContent string) (*NextJSData, error) {
+func (s *Service) extractNextData(htmlContent string) (*RatingsNextJSData, error) {
 	re := regexp.MustCompile(`<script id="__NEXT_DATA__" type="application/json">(.*?)</script>`)
 	matches := re.FindStringSubmatch(htmlContent)
 
@@ -165,7 +183,7 @@ func (s *Service) extractNextData(htmlContent string) (*NextJSData, error) {
 
 	jsonContent := strings.TrimSpace(matches[1])
 
-	var nextData NextJSData
+	var nextData RatingsNextJSData
 	if err := json.Unmarshal([]byte(jsonContent), &nextData); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal JSON: %w", err)
 	}
@@ -173,7 +191,7 @@ func (s *Service) extractNextData(htmlContent string) (*NextJSData, error) {
 	return &nextData, nil
 }
 
-func (s *Service) convertToRatingEntries(nextData *NextJSData) []rating.Entry {
+func (s *Service) convertToRatingEntries(nextData *RatingsNextJSData) []rating.Entry {
 	var entries []rating.Entry
 
 	// Process general competition entries
