@@ -31,23 +31,23 @@ func New(httpClient client) *Service {
 	return &Service{client: httpClient}
 }
 
-func (s *Service) GetEntries(ctx context.Context, programID int64) ([]rating.Entry, error) {
+func (s *Service) GetEntries(ctx context.Context, programID int64) ([]rating.Entry, time.Time, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	htmlContent, err := s.getPageWithRetries(ctx, fmt.Sprintf(programPageUrl, programID))
 	if err != nil {
-		return nil, fmt.Errorf("failed to download html page: %d err: %v", programID, err)
+		return nil, time.Time{}, fmt.Errorf("failed to download html page: %d err: %v", programID, err)
 	}
 
 	nextData, err := s.extractNextData(htmlContent)
 	if err != nil {
-		return nil, fmt.Errorf("failed to extract __NEXT_DATA__: %w", err)
+		return nil, time.Time{}, fmt.Errorf("failed to extract __NEXT_DATA__: %w", err)
 	}
 
 	entries := s.convertToRatingEntries(nextData)
 
-	return entries, nil
+	return entries, nextData.Props.PageProps.ProgramList.UpdateTime, nil
 }
 
 func (s *Service) GetAllPrograms(ctx context.Context) ([]rating.ProgramDirection, error) {

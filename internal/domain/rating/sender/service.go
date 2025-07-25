@@ -6,6 +6,7 @@ import (
 	"itmo-ratings/internal/domain/rating"
 	"log/slog"
 	"slices"
+	"time"
 )
 
 type Service struct {
@@ -29,7 +30,7 @@ func (s *Service) UpdateStudentRating(ctx context.Context, studentID string, tel
 	}
 
 	for _, p := range programs {
-		entries, err := s.parser.GetEntries(ctx, int64(p.CompetitiveGroupID))
+		entries, lastUpdate, err := s.parser.GetEntries(ctx, int64(p.CompetitiveGroupID))
 		if err != nil {
 			slog.Info("failed to get rating entries",
 				"err", err.Error(),
@@ -43,6 +44,7 @@ func (s *Service) UpdateStudentRating(ctx context.Context, studentID string, tel
 			budgetSlots: p.BudgetMin,
 			programID:   p.CompetitiveGroupID,
 			name:        p.DirectionTitle,
+			lastUpdate:  lastUpdate,
 		})
 		if err != nil {
 			slog.Info("failed to format msg", "err", fmt.Errorf("failed to format msg: %w", err), "programID", p.CompetitiveGroupID)
@@ -133,6 +135,7 @@ type programInfo struct {
 	budgetSlots int
 	programID   int
 	name        string
+	lastUpdate  time.Time
 }
 
 func (s *Service) formatMessage(studentID string, entries []rating.Entry, program programInfo) (string, error) {
@@ -185,6 +188,7 @@ func (s *Service) formatMessage(studentID string, entries []rating.Entry, progra
 	}
 
 	msg := `
+⌛ Последнее обновление: %s
 📊 Обновление места в списке поступления на программу: %d, %s
 
 👤 Твой номер заявления: %s
@@ -215,6 +219,7 @@ func (s *Service) formatMessage(studentID string, entries []rating.Entry, progra
 	}
 
 	return fmt.Sprintf(msg,
+		program.lastUpdate.String(),
 		program.programID,
 		program.name,
 		studentEntry.SSPVOID,

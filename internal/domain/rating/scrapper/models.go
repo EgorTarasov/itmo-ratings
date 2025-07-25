@@ -1,5 +1,7 @@
 package scrapper
 
+import "time"
+
 // RatingsNextJSData represents the structure of __NEXT_DATA__ content
 type RatingsNextJSData struct {
 	Props struct {
@@ -17,7 +19,7 @@ type RatingsNextJSData struct {
 					SpecialQuota       int    `json:"special_quota"`
 					CompetitiveGroupID int    `json:"competitive_group_id"`
 				} `json:"direction"`
-				UpdateTime string `json:"update_time"`
+				UpdateTime time.Time `json:"update_time"`
 			} `json:"programList"`
 		} `json:"pageProps"`
 	} `json:"props"`
