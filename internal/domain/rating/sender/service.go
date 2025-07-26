@@ -6,7 +6,10 @@ import (
 	"itmo-ratings/internal/domain/rating"
 	"log/slog"
 	"slices"
+	"strings"
 	"time"
+
+	"github.com/samber/lo"
 )
 
 type Service struct {
@@ -21,116 +24,19 @@ func New(sender sender, parser parser) *Service {
 	}
 }
 
-func (s *Service) UpdateStudentRating(ctx context.Context, studentID string, telegramUserID int64, _ int) error {
-	// получение всех программ и списка поступающих на все программы:
-
-	programs, err := s.parser.GetAllPrograms(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get avaliable programs: %w", err)
-	}
-
-	for _, p := range programs {
-		entries, lastUpdate, err := s.parser.GetEntries(ctx, int64(p.CompetitiveGroupID))
-		if err != nil {
-			slog.Info("failed to get rating entries",
-				"err", err.Error(),
-				"programID", p.CompetitiveGroupID,
-			)
-			continue
-		}
-		rating := calculateOurRating(entries, p.BudgetMin)
-
-		msg, err := s.formatMessage(studentID, rating, programInfo{
-			budgetSlots: p.BudgetMin,
-			programID:   p.CompetitiveGroupID,
-			name:        p.DirectionTitle,
-			lastUpdate:  lastUpdate,
-		})
-		if err != nil {
-			slog.Info("failed to format msg", "err", fmt.Errorf("failed to format msg: %w", err), "programID", p.CompetitiveGroupID)
-			continue
-		}
-		err = s.sender.SendMessage(ctx, telegramUserID, msg)
-		if err != nil {
-			return fmt.Errorf("failed to calculate ratings stats for program: %d", p.CompetitiveGroupID)
-		}
-	}
-
-	return nil
+type studentEntry struct {
+	studentID string
+	entry     *rating.Entry
+	program   *programData
 }
 
-// slots - доступное количество бюджетных мест
-// slots - доступное количество бюджетных мест
-// entries - вхождения студентов на программе
-func calculateOurRating(entries []rating.Entry, slots int) []rating.Entry {
-	if len(entries) == 0 {
-		return entries
-	}
-
-	// Safeguard: ensure slots is not negative
-	if slots < 0 {
-		slots = 0
-	}
-
-	// Safeguard: ensure we don't exceed the actual entries length
-	maxIndex := slots + 3
-	if maxIndex > len(entries) {
-		maxIndex = len(entries)
-	}
-
-	// 1) берем в наш расчет только количество <= максимального + 3
-	// +3 добавляет маленькую вероятность что кто-то пойдет на другую программу
-	relatedEntries := entries[:maxIndex]
-	var other []rating.Entry
-	if maxIndex < len(entries) {
-		other = entries[maxIndex:]
-	}
-
-	// 2) сортируем по:
-	// количество баллов за ВИ + ИД, приоритет, есть соглансие или нет, средний балл диплома
-	slices.SortFunc(relatedEntries, func(a, b rating.Entry) int {
-		// More robust sorting logic
-		if a.TotalScores != b.TotalScores {
-			if a.TotalScores > b.TotalScores {
-				return -1 // a should come before b (higher score first)
-			}
-			return 1
-		}
-
-		// If scores are equal, check priority (lower priority comes first)
-		if a.Priority != b.Priority {
-			if a.Priority < b.Priority {
-				return -1
-			}
-			return 1
-		}
-
-		// If priority is equal, check agreement status
-		if a.IsSendAgreement != b.IsSendAgreement {
-			if a.IsSendAgreement && !b.IsSendAgreement {
-				return -1 // agreement comes first
-			}
-			return 1
-		}
-
-		// If everything else is equal, compare diploma average
-		if a.DiplomaAverage > b.DiplomaAverage {
-			return -1
-		} else if a.DiplomaAverage < b.DiplomaAverage {
-			return 1
-		}
-
-		return 0 // completely equal
-	})
-
-	// Combine sorted relatedEntries with other entries
-	result := make([]rating.Entry, 0, len(entries))
-	result = append(result, relatedEntries...)
-	result = append(result, other...)
-
-	return result
+type programData struct {
+	data        *rating.ProgramDirection
+	entries     []rating.Entry
+	lastUpdated time.Time
 }
 
+// информация для форматирования сообщения о текущем состоянии студента
 type programInfo struct {
 	budgetSlots int
 	programID   int
@@ -138,104 +44,105 @@ type programInfo struct {
 	lastUpdate  time.Time
 }
 
-func (s *Service) formatMessage(studentID string, entries []rating.Entry, program programInfo) (string, error) {
-	var studentEntry rating.Entry
-	var studentIndex int = -1
+func (s *Service) UpdateStudentRating(
+	ctx context.Context,
+	studentID string,
+	telegramUserID int64,
+	_ int,
+) error {
+	// feature: отображать позиции студентов на других программах выше указанного studentID
+	students := make(map[string][]studentEntry)
+	// получение всех программ и списка поступающих на все программы:
+	programsMap := make(map[int]programData)
 
-	for i, entry := range entries {
-		if entry.SSPVOID == studentID {
-			studentEntry = entry
-			studentIndex = i
-			break
+	programs, err := s.parser.GetAllPrograms(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get avaliable programs: %w", err)
+	}
+
+	for _, program := range programs {
+		entries, lastUpdated, err := s.parser.GetEntries(ctx, int64(program.CompetitiveGroupID)) // _ - lastUpdateTime
+		if err != nil {
+			slog.Info("failed to get rating entries",
+				"err", err.Error(),
+				"programID", program.CompetitiveGroupID,
+			)
+			continue
+		}
+		programData := programData{
+			data:        &program,
+			entries:     entries,
+			lastUpdated: lastUpdated,
+		}
+
+		programsMap[program.CompetitiveGroupID] = programData
+
+		for _, student := range entries {
+			if _, ok := students[student.SSPVOID]; !ok {
+				students[student.SSPVOID] = make([]studentEntry, 0, 2)
+			}
+
+			students[student.SSPVOID] = append(students[student.SSPVOID], studentEntry{
+				studentID: student.SSPVOID,
+				entry:     &student,
+				program:   &programData,
+			})
 		}
 	}
-
-	if studentIndex == -1 {
-		return "", fmt.Errorf("Студент с номером заявления %s не найден в списке поступающих", studentID)
+	// находим требуемого студента:
+	requestedStudentEntries, ok := students[studentID]
+	if !ok {
+		return fmt.Errorf("failed to find student in all programs: %w", err)
 	}
 
-	totalStudents := len(entries)
-	studentsAbove := studentIndex
-	studentsBelow := totalStudents - studentIndex - 1
-
-	// Calculate percentage position
-	percentilePosition := float64(studentsAbove) / float64(totalStudents) * 100
-
-	// Check if student is in budget zone
-	var budgetStatus string
-	if studentIndex < program.budgetSlots {
-		budgetStatus = "🟢 В зоне бюджетных мест"
-	} else if studentIndex < program.budgetSlots+5 {
-		budgetStatus = "🟡 Близко к бюджетной зоне"
-	} else {
-		budgetStatus = "🔴 Вне бюджетной зоны"
+	err = s.sender.SendMessage(ctx, telegramUserID, studentSummary(requestedStudentEntries))
+	if err != nil {
+		return fmt.Errorf("failed to send student summary to userID: %d", telegramUserID)
 	}
 
-	// Calculate distance to budget zone
-	var distanceToBudget string
-	if studentIndex >= program.budgetSlots {
-		distance := studentIndex - program.budgetSlots + 1
-		distanceToBudget = fmt.Sprintf("📏 До бюджета: %d мест", distance)
-	} else {
-		distanceToBudget = "🎉 В бюджетной зоне!"
-	}
+	return nil
+}
 
-	// Calculate score difference with budget cutoff
-	var scoreDiffWithBudget float64
-	if program.budgetSlots > 0 && program.budgetSlots <= len(entries) {
-		budgetCutoffScore := entries[program.budgetSlots-1].TotalScores
-		scoreDiffWithBudget = budgetCutoffScore - studentEntry.TotalScores
-	}
+func studentSummary(data []studentEntry) string {
+	slices.SortFunc(data, func(a, b studentEntry) int {
+		return a.entry.Priority - b.entry.Priority
+	})
 
-	msg := `
-⌛ Последнее обновление: %s
-📊 Обновление места в списке поступления на программу: [%s](https://abit.itmo.ru/rating/master/budget/%d)
-
-👤 Твой номер заявления: %s
-📍 Твое место в нашем рейтинге: %d из %d
-📈 Официальная позиция: %d / %d
-🎯 Твои баллы: %.2f
-📊 Общий балл: %.2f
-
-📈 Статистика позиции:
-• Студентов выше тебя: %d
-• Студентов ниже тебя: %d
-• Процентиль: %.1f%%
-
-🎯 Статус: %s
-%s
-
-📉 Отставание от бюджетного порога: %.2f баллов
-🔄 Приоритет: %d
-%s
+	msgRow := `
+Приоритет: %d
+Программа: %s
+Позиция: %d / %d (всего подано заявлений: %d)
+Студентов с приоритетов ниже чем у студента: %d
+Последнее обновление: %s
 `
 
-	// Agreement status
-	agreementStatus := ""
-	if studentEntry.IsSendAgreement {
-		agreementStatus = "✅ Согласие подано"
-	} else {
-		agreementStatus = "❌ Согласие не подано"
+	msgBuilder := strings.Builder{}
+	for _, row := range data {
+		withLowerPriority := lo.Filter(row.program.entries, func(v rating.Entry, _ int) bool {
+			if v.Priority > row.entry.Priority && v.Position < row.entry.Position {
+				return true
+			}
+			return false
+		})
+
+		msgBuilder.WriteString(fmt.Sprintf(msgRow,
+			row.entry.Priority,
+			formatProgram(row.program.data),
+			row.entry.Position,
+			row.program.data.BudgetMin,
+			len(row.program.entries),
+			len(withLowerPriority),
+			row.program.lastUpdated.Format(time.RFC822),
+		),
+		)
 	}
 
-	return fmt.Sprintf(msg,
-		program.lastUpdate.String(),
-		program.name,
-		program.programID,
-		studentEntry.SSPVOID,
-		studentIndex+1, // +1 because index is 0-based
-		totalStudents,
-		studentEntry.Position,
-		program.budgetSlots,
-		studentEntry.ExamScores,
-		studentEntry.TotalScores,
-		studentsAbove,
-		studentsBelow,
-		percentilePosition,
-		budgetStatus,
-		distanceToBudget,
-		scoreDiffWithBudget,
-		studentEntry.Priority,
-		agreementStatus,
-	), nil
+	return msgBuilder.String()
+}
+
+func formatProgram(program *rating.ProgramDirection) string {
+	if program == nil {
+		return ""
+	}
+	return fmt.Sprintf("[%s](https://abit.itmo.ru/rating/master/budget/%d)", program.DirectionTitle, program.CompetitiveGroupID)
 }
