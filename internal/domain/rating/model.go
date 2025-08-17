@@ -1,5 +1,7 @@
 package rating
 
+import "time"
+
 // Add this to your rating package
 type Entry struct {
 	Contest                   string  `json:"contest"`
@@ -36,4 +38,31 @@ type ProgramDirection struct {
 	Invalid            int    `json:"invalid"`
 	SpecialQuota       int    `json:"special_quota"`
 	CompetitiveGroupID int    `json:"competitive_group_id"`
+}
+
+type ProgramData struct {
+	Data        *ProgramDirection
+	Entries     []Entry
+	LastUpdated time.Time
+}
+
+type StudentEntry struct {
+	StudentID string
+	Entry     *Entry
+	Program   *ProgramData
+}
+
+type StudentSummaryEntry struct {
+	Priority             int    `json:"priority"`
+	Program              string `json:"program"` // formatted link like "[Title](url)"
+	Position             int    `json:"position"`
+	BudgetMin            int    `json:"budgetMin"`
+	TotalApplications    int    `json:"totalApplications"`
+	LowerPriorityAhead   int    `json:"lowerPriorityAhead"`
+	LastUpdatedFormatted string `json:"lastUpdated"` // RFC822 to match msgRow
+}
+
+type StudentSummary struct {
+	StudentID string                `json:"studentId"`
+	Entries   []StudentSummaryEntry `json:"entries"`
 }

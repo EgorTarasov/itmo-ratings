@@ -12,13 +12,23 @@ type Bot struct {
 	*tgbotapi.BotAPI
 }
 
-func New(apiToken string) *Bot {
+type Option func(*tgbotapi.BotAPI)
+
+func WithDebug() func(*tgbotapi.BotAPI) {
+	return func(b *tgbotapi.BotAPI) {
+		b.Debug = true
+	}
+}
+
+func New(apiToken string, options ...Option) *Bot {
 	bot, err := tgbotapi.NewBotAPI(apiToken)
 	if err != nil {
 		log.Panic(err)
 	}
 
-	bot.Debug = true
+	for _, opt := range options {
+		opt(bot)
+	}
 
 	return &Bot{
 		BotAPI: bot,

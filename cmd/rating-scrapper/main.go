@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"itmo-ratings/internal/domain/rating/scrapper"
-	"itmo-ratings/internal/domain/rating/sender"
+	sender "itmo-ratings/internal/domain/rating/student_rating_service"
 	"itmo-ratings/internal/infrustructure/bot"
 	"log/slog"
 	"net/http"
@@ -22,22 +22,26 @@ func main() {
 
 func run() int {
 	telegramToken := os.Getenv("TELEGRAM_API_TOKEN")
-	programRawID := os.Getenv("PROGRAM_ID")
 	studentID := os.Getenv("STUDENT_ID")
 	telegramStudentID := os.Getenv("TELEGRAM_USER_ID")
 	ctx := context.Background()
 
-	programID, _ := strconv.ParseInt(programRawID, 10, 64)
 	telegramID, _ := strconv.ParseInt(telegramStudentID, 10, 64)
 
-	bot := bot.New(telegramToken)
+	telegram := bot.New(telegramToken)
 
 	parser := scrapper.New(http.DefaultClient)
 
-	runner := sender.New(bot, parser)
+	runner := sender.New(parser)
 
-	if err := runner.UpdateStudentRating(ctx, studentID, telegramID, int(programID)); err != nil {
+	summary, err := runner.GetStudentSummary(ctx, studentID)
+	if err != nil {
 		slog.Error("failed to update status", "err", err)
+		return fail
+	}
+
+	if err = telegram.SendMessage(ctx, telegramID, summary); err != nil {
+		slog.Error("failed to send message", "err", err)
 		return fail
 	}
 

@@ -66,5 +66,5 @@ go run cmd/rating-scrapper/main.go
 
 - [`cmd/rating-scrapper/main.go`](cmd/rating-scrapper/main.go ) - точка входа
 - [`internal/domain/rating/scrapper/service.go`](internal/domain/rating/scrapper/service.go ) - парсинг данных с сайта ИТМО
-- [`internal/domain/rating/sender/service.go`](internal/domain/rating/sender/service.go ) - основная бизнес-логика
+- [`internal/domain/rating/sender/service.go`](internal/domain/rating/student_rating_service/service.go ) - основная бизнес-логика
 - [`internal/infrustructure/bot/bot.go`](internal/infrustructure/bot/bot.go ) - отправка сообщений в Telegram
