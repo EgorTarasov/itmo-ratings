@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -23,6 +24,7 @@ func WithDebug() func(*tgbotapi.BotAPI) {
 func New(apiToken string, options ...Option) *Bot {
 	bot, err := tgbotapi.NewBotAPI(apiToken)
 	if err != nil {
+		slog.Error("failed to init telegram bot", "token", apiToken, "err", err.Error())
 		log.Panic(err)
 	}
 
